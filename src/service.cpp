@@ -31,34 +31,36 @@
 std::unique_ptr<Terminal> term;
 net::tcp::Connection_ptr client_conn;
 
-char *eliminate_command(char *buf, int n)
+int eliminate_command(char *dst, char *buf, int n)
 {
-	char *ret = (char *) malloc(1024);
 	int copied_len = 0;
 
 	while(n) {
 		switch (*buf) {
-			case 240:
-				break;
 			case 255:
 				/* Interpret as Command */
 				buf ++;
+				n --;
 				if (*buf >= 251) {
 					buf ++;
+					n --;
 				}
+			case 1:
+			case 28:
+			case 240:
+				break;
 			default:
-				if (*buf < 0x20)
-					break;
-				*(ret + copied_len) = *buf;
+				*(dst + copied_len) = *buf;
 				copied_len ++;
 				break;
 		}
 		buf ++;
 		n --;
 	}
-	*(ret + copied_len) = 0;
+	*(dst + copied_len) = '\n';
+	*(dst + copied_len + 1) = 0;
 
-	return ret;
+	return copied_len;
 }
 
 extern "C" {
@@ -85,20 +87,21 @@ extern "C" {
 		term->write(string);
 	}
 	char *read_from_telnet (char *s, int l) {
-		client_conn->on_read(1024, [s] (auto buf, size_t n) {
+		int clen = 0;
+		client_conn->on_read(1024, [s, &clen] (auto buf, size_t n) {
 			char *test = (char *)buf.get();
-			char *raw = eliminate_command(test, n);
-			strcpy(s, raw);
-			printf("Incomming: %s::", s);
+			clen = eliminate_command(s, test, n);
+			printf("Incomming: %s:", s);
 			int i = 0;
 			while(*(s + i) != 0) {
-				printf("%d", *(s+i));
+				printf("%u ", *(s+i));
 				i++;
 			}
 			printf("\n");
-			free(raw);
+
 		});
-		OS::block();
+		while (clen < 1)
+			OS::block();
 		return s;
 	}
 }
@@ -136,8 +139,9 @@ void Service::start(const std::string&)
 			term = std::make_unique<Terminal> (client);
 			term->add("echo", "echo", [client] (const std::vector<std::string>&) -> int {
 					client->on_read(1024, [] (auto buf, size_t n) {
-							char *test = (char *)buf.get();
-							char *raw = eliminate_command(test, n);
+							char *test = (char *) buf.get();
+							char *raw = (char *) malloc(n);
+							eliminate_command(raw, test, n);
 							term->write(raw);
 							free(raw);
 					});
