@@ -31,7 +31,7 @@
 std::unique_ptr<Terminal> term;
 net::tcp::Connection_ptr client_conn;
 
-int eliminate_command(char *dst, char *buf, int n)
+int eliminate_command(char *dst, unsigned char *buf, int n)
 {
 	int copied_len = 0;
 
@@ -90,18 +90,12 @@ extern "C" {
 		int clen = 0;
 		client_conn->on_read(1024, [s, &clen] (auto buf, size_t n) {
 			char *test = (char *)buf.get();
-			clen = eliminate_command(s, test, n);
-			printf("Incomming: %s:", s);
+			clen = eliminate_command(s, (unsigned char *) test, n);
 			int i = 0;
-			while(*(s + i) != 0) {
-				printf("%u ", *(s+i));
-				i++;
-			}
-			printf("\n");
-
 		});
 		while (clen < 1)
 			OS::block();
+
 		return s;
 	}
 }
@@ -141,7 +135,7 @@ void Service::start(const std::string&)
 					client->on_read(1024, [] (auto buf, size_t n) {
 							char *test = (char *) buf.get();
 							char *raw = (char *) malloc(n);
-							eliminate_command(raw, test, n);
+							eliminate_command(raw, (unsigned char *) test, n);
 							term->write(raw);
 							free(raw);
 					});
@@ -154,8 +148,11 @@ void Service::start(const std::string&)
 					runtime.run();
 					return 0;
 			});
-			term->add("halt", "halt", [] (const std::vector<std::string>&) -> int {
-					OS::halt();
+			term->add("halt", "halt", [client] (const std::vector<std::string>&) -> int {
+					//OS::halt();
+					client->close();
+					char *trap = NULL;
+					*trap = 100;
 					return 0;
 			});
 	});
